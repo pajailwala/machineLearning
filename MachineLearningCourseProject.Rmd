@@ -1,0 +1,155 @@
+---
+title: "Coursera: Machine Learning Course Project"
+author: "Parthav Jailwala"
+date: "May 15, 2016"
+output: html_document
+---
+### Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+###Synopsis
+In this project, I used data from accelerometers on the belt, forearm, arm, and dumbell from 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of this project was to build a machine learning algorithm that predicted with high accuracy the manner in which the participants did the exercise. 
+
+I learnt about pre-processing the dataset to remove variables that are not informative. I have not tried to test for variable co-linearity to collapse the variable space. I also learnt how the Random Forest algorithm fits a model and how predictions can be made on test data. Based on my analysis, the Random Forest approach gave 99.045% accuracy on the training set and 100% accuracy on the set of 20 cases in the test set. This algorithm predicted correctly all of 20 test cases.
+
+###Loading libraries, input data and exploring the input dataset
+
+#### Load libraries
+```{r, message=FALSE, warning=FALSE}
+library(caret)
+library(rattle)
+library(rpart.plot)
+library(randomForest)
+```
+
+#### Set working directory
+```{r}
+# Set working directory
+setwd("~/Documents/DataScience/8.MachineLearning")
+```
+
+#### Read in the input datasets
+```{r}
+# Read in the training set
+trainset<-read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"))
+
+# Read in the testing set
+testset<-read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
+```
+
+#### Explore the input datasets to determine what pre-processing is required
+```{r}
+# Check names, structure and class of both sets
+
+# There are 19622 observations for 160 variables in training set
+dim(trainset)
+# There are only 20 observations for 160 variables in test set
+dim(testset)
+# Both are data.frames
+class(trainset)
+class(testset)
+
+# Names of variables. There are 38 columns for each 'device type': belt, arm, forearm and dumbell for 6 participants
+# 38*4 = 152 columns. Add initial 8 columns of the username (6 names), timestamp and window. So total 160 columns
+# Notice there are several NA values...there may also be blank values
+str(trainset)
+```
+
+```{r}
+# So reload both datasets forcing any NA or blank values to be interpreted as a character string 'NA'
+# Read in the training set, forcing NA values
+trainset<-read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"), na.strings=c("NA",""),header=TRUE)
+
+# Read in the testing set,forcing NA values
+testset<-read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"),na.strings=c("NA",""), header=TRUE)
+
+# Notice that the 160th column in trainset is "classe" (with values A, B, C, D & E), while that in testset is "problem_id", ranging from 1 to 20
+```
+
+#### Prepare training, validation and test datasets
+```{r}
+# First, lets randomly split the full training set into a smaller training set (trainsubset) and a validation set (validationsubset)
+
+inTrain=createDataPartition(y=trainset$classe,p=0.7, list=FALSE)
+trainsubset=trainset[inTrain, ]
+validationsubset=trainset[-inTrain, ]
+
+dim(trainsubset)
+dim(validationsubset)
+
+```
+
+#### Filter out variables not required for model fitting
+```{r}
+# Now, as the number of features are too large (160), and there could be uninformative features (that are all NA values OR having nearly zero variance), we need to remove these features that are not of interest for model building
+
+# The strategy is to check which of such columns (variables) can be dropped from the training set and then subset the testing set accordingly
+
+# Remove variables that have nearly zero variance from the training set
+
+nearZeroVar<-nearZeroVar(trainsubset)
+trainsubset<-trainsubset[,-nearZeroVar]
+validationsubset<-validationsubset[,-nearZeroVar]
+
+# The number of variables drops from 160 to 105
+dim(trainsubset)
+dim(validationsubset)
+
+# Now remove variables that have 95% NA values, that they will be uninformative
+NA95<-sapply(trainsubset, function(x) mean(is.na(x))) > 0.95
+trainsubset<-trainsubset[, NA95==F]
+validationsubset<-validationsubset[,NA95==F]
+
+# The number of variables drops from 105 to 59
+dim(trainsubset)
+dim(validationsubset)
+```
+
+```{r}
+# For model building the first 7 variables are not needed as they are more of the descriptor variables and not measurement variables that should go into the model
+
+trainsubset<-trainsubset[,(7:59)]
+validationsubset<-validationsubset[,(7:59)]
+str(trainsubset)
+```
+
+#### Model fitting: Random Forest
+```{r}
+# Set the classe variable as a factor in the training & validation dataset
+trainsubset$classe<-as.factor(trainsubset$classe)
+
+# Train model with random forest as it is highly accurate
+
+modFit<-train(classe~., method="rf", data=trainsubset, trControl=trainControl(method="cv",number=5),allowParallel=TRUE)
+
+# The above model fitting took a long time (15min)
+modFit
+
+
+# mtry=27 gave 0.99045 accuracy
+
+trainPred<-predict(modFit, trainsubset)
+confusionMatrix(trainPred, trainsubset$classe)
+```
+
+#### Prediction on the cross-validation dataset
+```{r}
+# predict on cross-validation set
+validPredict<-predict(modFit, validationsubset)
+confusionMatrix(validPredict, validationsubset$classe)
+```
+
+#### Prediction on the testing dataset
+```{r}
+# Now predict on the real testing set
+
+testPred<-predict(modFit, testset)
+testPred
+```
+
+###Conclusion
+- The random forest approach gave ~99% accuracy on the training and validation datasets. Can this be improved further? Yes, one can experiment with either different size of k in the k-fold cross validation with Random Forest, or explore model fitting using other algorithms such as GLM or rf.
+- The process of pre-filtering the dataset from 160 varibles to just 53 variables seems to have helped the model fitting.
+- Further improvements to the model could be tried with boosting/bagging approaches applied to the model fitting.
+
